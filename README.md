@@ -6,7 +6,7 @@ This repository contains my submission for the Automation & QA Developer assessm
 
 ## Task 1 – Manual QA Testing
 
-Tested application: https://demo.realworld.io
+Tested application: https://demo.realworld.show/
 
 - Tested registration, login, article creation, and editing.
 - Identified and documented five issues.
