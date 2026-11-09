@@ -1,0 +1,332 @@
+{
+  "name": "GitHub Trending Repositories Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "id": "6edc8ea2-38da-46e5-92e3-8a48a5ec02ee",
+      "name": "Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/search/repositories?q=language:javascript&sort=stars&order=desc&per_page=10",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "n8n-github-digest"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c50d4d8d-1d21-467a-a4a7-ef58a93aad2d",
+      "name": "Fetch Top JS Repos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        224,
+        224
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "akvish052@gmail.com",
+        "subject": "GitHub Digest workflow: API request failed",
+        "emailType": "text",
+        "message": "=A GitHub API request failed in workflow \"{{ $workflow.name }}\" (execution {{ $execution.id }}).\n\nError: {{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "62e1a833-2e5b-41fb-a7a0-f3e69c1d7276",
+      "name": "Email Error Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        976,
+        320
+      ],
+      "webhookId": "105b13ff-4a3a-4393-9994-99627d881498",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "jpvt5sZ21fGPqp6D",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const repos = $input.first().json.items || [];\nconst top5 = repos\n  .slice()\n  .sort((a, b) => b.stargazers_count - a.stargazers_count)\n  .slice(0, 5)\n  .map((r) => ({\n    owner: r.owner.login,\n    name: r.name,\n    fullName: r.full_name,\n    stars: r.stargazers_count,\n    url: r.html_url,\n    description: r.description || '',\n  }));\nif (top5.length === 0) {\n  throw new Error('GitHub returned no repositories');\n}\nconst topRepo = top5[0];\nconst lines = top5.map((r, i) => (i + 1) + '. ' + r.fullName + ' (' + r.stars + ' stars)\\n   ' + r.url + '\\n   ' + r.description);\nconst digestText = 'Top 5 JavaScript repositories on GitHub:\\n\\n' + lines.join('\\n\\n');\nreturn [{ json: { top5, topRepo, digestText } }];"
+      },
+      "id": "614ea660-2040-4a84-926d-8f8a713e8f8a",
+      "name": "Select Top 5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.topRepo.owner }}/{{ $json.topRepo.name }}/readme",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw+json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "n8n-github-digest"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "readme"
+            }
+          }
+        }
+      },
+      "id": "c3cc6772-b0c3-42b7-8ad8-b785581ef064",
+      "name": "Fetch Top Repo README",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        720,
+        272
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $('Select Top 5').first().json;\nconst raw = String($input.first().json.readme || '');\n\nfunction cleanReadme(text) {\n  let t = text.replace(/\\r\\n?/g, '\\n');\n  t = t.replace(/<!--[\\s\\S]*?-->/g, ' ');\n  t = t.replace(/<(script|style)[\\s\\S]*?<\\/\\1>/gi, ' ');\n  t = t.replace(/```[^\\n]*\\n[\\s\\S]*?```/g, ' ');\n  t = t.replace(/!\\[[^\\]]*\\]\\([^)]*\\)/g, ' ');\n  t = t.replace(/!\\[[^\\]]*\\]\\[[^\\]]*\\]/g, ' ');\n  t = t.replace(/\\[!\\[[^\\]]*\\]\\([^)]*\\)\\]\\([^)]*\\)/g, ' ');\n  t = t.replace(/<img[^>]*>/gi, ' ');\n  t = t.replace(/<br\\s*\\/?>/gi, '\\n');\n  t = t.replace(/<\\/(p|div|h[1-6]|li|tr|table|ul|ol|details|summary)>/gi, '\\n\\n');\n  t = t.replace(/<[^>]+>/g, ' ');\n  t = t.replace(/\\[([^\\]]+)\\]\\([^)]*\\)/g, '$1');\n  t = t.replace(/\\[([^\\]]+)\\]\\[[^\\]]*\\]/g, '$1');\n  t = t.replace(/^\\s*\\[[^\\]]+\\]:\\s*\\S+.*$/gm, '');\n  t = t.replace(/^\\s{0,3}#{1,6}\\s*/gm, '');\n  t = t.replace(/^\\s*[-*_=]{3,}\\s*$/gm, '');\n  t = t.replace(/^\\s*\\|?[\\s:|-]{3,}\\|?\\s*$/gm, '');\n  t = t.replace(/^\\s*>\\s?/gm, '');\n  t = t.replace(/^\\s*[-*+]\\s+/gm, '- ');\n  t = t.replace(/(\\*\\*|__)(.*?)\\1/g, '$2');\n  t = t.replace(/(\\*|_)(\\S[^*_\\n]*\\S|\\S)\\1/g, '$2');\n  t = t.replace(/`([^`]*)`/g, '$1');\n  t = t.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  t = t.replace(/\\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\\]/gi, '');\n  t = t.split('\\n').filter((l) => (l.match(/\\|/g) || []).length < 3 && !/^\\s*(\\*|_)*(languages?|translations?|translated|available in|read this in|read in|idiomas?|langues?)(\\*|_)*\\s*[:\\-]/i.test(l) && !/(\\s[|·•]\\s).*(\\s[|·•]\\s)/.test(l)).join('\\n');\n  t = t.replace(/[ \\t]+/g, ' ');\n  t = t.split('\\n').map((l) => l.trim()).join('\\n');\n  t = t.replace(/\\n{3,}/g, '\\n\\n').trim();\n  return t;\n}\n\nfunction excerpt(text, max) {\n  const paras = text.split(/\\n\\n+/).map((p) => p.replace(/\\n/g, ' ').trim()).filter((p) => p.length >= 20 && (p.match(/\\|/g) || []).length < 3 && !/^(\\*|_)*(languages?|translations?|available in|read this in)(\\*|_)*\\s*[:\\-]/i.test(p));\n  let out = '';\n  for (const p of paras) {\n    if (out.length >= max) break;\n    out += (out ? '\\n\\n' : '') + p;\n  }\n  if (out.length > max) {\n    out = out.slice(0, max);\n    const cut = Math.max(out.lastIndexOf('. '), out.lastIndexOf(' '));\n    if (cut > max * 0.6) out = out.slice(0, cut);\n    out = out.replace(/[\\s,;:.-]+$/, '') + '...';\n  }\n  return out;\n}\n\nconst readmeExcerpt = excerpt(cleanReadme(raw), 800) || 'No readable README text was available.';\nconst fmt = (n) => Number(n).toLocaleString('en-US');\nconst line = '------------------------------------------------------------';\nconst repoBlocks = src.top5.map((r, i) =>\n  (i + 1) + '. ' + r.fullName + '\\n' +\n  '   Stars: ' + fmt(r.stars) + '\\n' +\n  '   Link: ' + r.url + '\\n' +\n  '   About: ' + (r.description || 'No description provided')\n);\nconst top = src.topRepo;\nconst emailBody =\n  'GITHUB TRENDING - TOP 5 JAVASCRIPT REPOSITORIES\\n' +\n  'Generated: ' + $now.toFormat('dd LLL yyyy, HH:mm') + '\\n' +\n  line + '\\n\\n' +\n  repoBlocks.join('\\n\\n') + '\\n\\n' +\n  line + '\\n' +\n  'TOP REPOSITORY SPOTLIGHT: ' + top.fullName + ' (' + fmt(top.stars) + ' stars)\\n' +\n  line + '\\n\\n' +\n  'README excerpt:\\n' + readmeExcerpt + '\\n\\n' +\n  'Full README: ' + top.url + '#readme\\n';\nreturn [{ json: { emailBody, readmeExcerpt } }];\n"
+      },
+      "id": "b6549171-7e51-4cc1-a4f1-e7a27ec4ae81",
+      "name": "Format Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "stars-check",
+              "leftValue": "={{ $(\"Select Top 5\").item.json.topRepo.stars }}",
+              "rightValue": 1000,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "35b997c0-b526-4165-a64f-b364d2898376",
+      "name": "More Than 1000 Stars?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1216,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "akvish052@gmail.com",
+        "subject": "=GitHub Digest: top repo {{ $(\"Select Top 5\").item.json.topRepo.fullName }} is popular (>1000 stars)",
+        "emailType": "text",
+        "message": "={{ $json.emailBody }}",
+        "options": {}
+      },
+      "id": "18dedb66-7bd3-4675-ad71-68e0d8d143b1",
+      "name": "Email Digest (Popular)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        0
+      ],
+      "webhookId": "2e570c5f-2b54-42f1-893e-c842b2df9dae",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "jpvt5sZ21fGPqp6D",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "akvish052@gmail.com",
+        "subject": "=GitHub Digest: top repo {{ $(\"Select Top 5\").item.json.topRepo.fullName }} has 1000 stars or fewer",
+        "emailType": "text",
+        "message": "={{ $json.emailBody }}",
+        "options": {}
+      },
+      "id": "42847f28-4fec-4145-9af0-43dff15efd70",
+      "name": "Email Digest (Low Stars)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        192
+      ],
+      "webhookId": "015e0208-4331-4d29-84f1-427e08be153e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "jpvt5sZ21fGPqp6D",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every Hour": {
+      "main": [
+        [
+          {
+            "node": "Fetch Top JS Repos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Top JS Repos": {
+      "main": [
+        [
+          {
+            "node": "Select Top 5",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Top 5": {
+      "main": [
+        [
+          {
+            "node": "Fetch Top Repo README",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Top Repo README": {
+      "main": [
+        [
+          {
+            "node": "Format Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Email": {
+      "main": [
+        [
+          {
+            "node": "More Than 1000 Stars?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "More Than 1000 Stars?": {
+      "main": [
+        [
+          {
+            "node": "Email Digest (Popular)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Digest (Low Stars)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "ab7b0b1b-a509-4a58-b22f-622e06eb35d4",
+  "meta": {
+    "instanceId": "f8b08ca93b994349c5401341cc60b695aa0794e76eaf4cb6ce1761c87e6e177c"
+  },
+  "nodeGroups": [
+    {
+      "id": "d748ecc1-1b19-437a-a39b-569fc478325b",
+      "name": "Send digest email",
+      "nodeIds": [
+        "b6549171-7e51-4cc1-a4f1-e7a27ec4ae81",
+        "35b997c0-b526-4165-a64f-b364d2898376",
+        "18dedb66-7bd3-4675-ad71-68e0d8d143b1",
+        "42847f28-4fec-4145-9af0-43dff15efd70"
+      ],
+      "description": "Cleans the top repo README into plain text, builds the digest, and emails it with a subject based on star count."
+    }
+  ],
+  "id": "iqA3eRK1nGNqIO7Q",
+  "tags": []
+}
